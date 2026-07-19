@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Build the ForestFormer3D image. ONLINE PHASE — requires internet access.
+# The image targets an RTX A5000 (compute capability 8.6) by default; for a
+# different GPU pass e.g.:
+#   scripts/build.sh --build-arg CUDA_ARCH_LIST="8.0"
 # Extra args are passed straight to `docker build`, e.g.:
-#   scripts/build.sh --build-arg CUDA_ARCH_LIST="8.0" --build-arg MAX_JOBS=8
 #   scripts/build.sh --build-arg SKIP_CHECKPOINT=1
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

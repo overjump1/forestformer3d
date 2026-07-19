@@ -14,7 +14,9 @@
 #   CHECKPOINT_MATCH regex used to pick the model asset from the Zenodo record
 FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel
 
-ARG CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"
+# 8.6 = RTX A5000 / RTX 30xx (Ampere). For other/multiple GPUs pass e.g.
+# --build-arg CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"
+ARG CUDA_ARCH_LIST="8.6"
 ARG MAX_JOBS=4
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -30,16 +32,18 @@ ENV PATH=/usr/local/cuda/bin:$PATH \
 RUN rm -f /etc/apt/sources.list.d/cuda.list /etc/apt/sources.list.d/nvidia-ml.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential software-properties-common ca-certificates \
-        git wget unzip ninja-build \
-        ffmpeg libsm6 libxext6 libglib2.0-0 libxrender-dev \
+        build-essential ca-certificates \
+        git unzip ninja-build \
+        libgl1 libgomp1 libglib2.0-0 libsm6 libxext6 libxrender1 \
         libopenblas-dev \
     && (apt-get install -y --no-install-recommends gcc-9 g++-9 \
-        || (add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+        || (apt-get install -y --no-install-recommends software-properties-common \
+            && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
             && apt-get update \
             && apt-get install -y --no-install-recommends gcc-9 g++-9)) \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 60 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # segmentator's CMakeLists requires cmake >= 3.18, newer than the distro's.
