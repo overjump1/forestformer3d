@@ -30,16 +30,18 @@ ENV PATH=/usr/local/cuda/bin:$PATH \
 RUN rm -f /etc/apt/sources.list.d/cuda.list /etc/apt/sources.list.d/nvidia-ml.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential software-properties-common ca-certificates \
-        git wget unzip ninja-build \
-        ffmpeg libsm6 libxext6 libglib2.0-0 libxrender-dev \
+        build-essential ca-certificates \
+        git unzip ninja-build \
+        libgl1 libgomp1 libglib2.0-0 libsm6 libxext6 libxrender1 \
         libopenblas-dev \
     && (apt-get install -y --no-install-recommends gcc-9 g++-9 \
-        || (add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+        || (apt-get install -y --no-install-recommends software-properties-common \
+            && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
             && apt-get update \
             && apt-get install -y --no-install-recommends gcc-9 g++-9)) \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 60 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # segmentator's CMakeLists requires cmake >= 3.18, newer than the distro's.

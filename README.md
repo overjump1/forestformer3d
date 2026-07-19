@@ -29,11 +29,30 @@ pretrained checkpoint from Zenodo.
   (reduce `chunk`/cylinder radius in the config if you hit OOM — see the
   upstream readme).
 
-The image compiles its CUDA extensions for
-`TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"` — V100, RTX 20xx, A100/A40,
-RTX 30xx natively, and newer GPUs (e.g. RTX 40xx) via PTX JIT. To target a
-single architecture (faster build, smaller image):
-`scripts/build.sh --build-arg CUDA_ARCH_LIST="8.0"`.
+**GPU architectures:** if `nvidia-smi` is available on the build machine, the
+build scripts detect the local GPU and compile the CUDA extensions **only for
+that architecture** (e.g. `8.6+PTX` on an RTX A5000/30xx) — significantly
+faster and smaller. If no GPU is detected, the image falls back to the broad
+`Dockerfile` default `7.0;7.5;8.0;8.6+PTX` (V100 through RTX 30xx natively,
+newer GPUs via PTX JIT). Building for a *different* machine than the one you
+build on? Set it explicitly, e.g. `CUDA_ARCH_LIST="8.0" scripts/build.sh`
+(PowerShell: `$env:CUDA_ARCH_LIST="8.0"; .\scripts\build.ps1`).
+
+### Disk space
+
+The build happens inside Docker's own storage (on Windows: the Docker Desktop
+WSL2 virtual disk) and needs roughly **35–40 GB free** there — the CUDA devel
+base image alone is ~13 GB, plus the built layers and build cache. If the
+build dies with "no space left on device":
+
+- Reclaim space: `docker system prune -a` (removes **all** unused images and
+  containers) and `docker builder prune` (removes build cache).
+- Docker Desktop → Settings → Resources → Advanced: raise the **virtual disk
+  limit**, and/or change the **disk image location** to a drive with more room.
+- Build leaner: the single-architecture auto-detection above is the biggest
+  saving; `--build-arg SKIP_CHECKPOINT=1` also skips baking the pretrained
+  model (you can still get it via `scripts/download_data.sh`, mounted at
+  runtime).
 
 On Windows, use the `scripts/*.ps1` equivalents of every command below — see
 [Windows notes](#windows-notes).

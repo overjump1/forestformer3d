@@ -1,13 +1,38 @@
 # Build the ForestFormer3D image on Windows (Docker Desktop).
 # ONLINE PHASE - requires internet access.
+#
+# If nvidia-smi is available, the CUDA extensions are compiled ONLY for the
+# GPU(s) detected on this machine (much less disk/time than the broad
+# default). Override with $env:CUDA_ARCH_LIST, e.g.:
+#   $env:CUDA_ARCH_LIST = "7.0;7.5;8.0;8.6+PTX"   # broad/portable
+#   $env:CUDA_ARCH_LIST = "8.6"                    # RTX 30xx / A5000
+#
 # Extra args are passed straight to `docker build`, e.g.:
-#   .\scripts\build.ps1 --build-arg CUDA_ARCH_LIST="8.6"
 #   .\scripts\build.ps1 --build-arg SKIP_CHECKPOINT=1
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 $Image = if ($env:IMAGE) { $env:IMAGE } else { "forestformer3d:offline" }
-docker build -t $Image @args .
+
+# Auto-detect the local GPU architecture(s) unless explicitly overridden.
+$ArchList = $env:CUDA_ARCH_LIST
+if (-not $ArchList) {
+    $caps = $null
+    try {
+        $caps = (& nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null) |
+                ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique
+    } catch {}
+    if ($caps) {
+        $ArchList = ($caps -join ';') + '+PTX'
+        Write-Host "Detected local GPU compute capability: $($caps -join ';') -> building for $ArchList"
+        Write-Host "(set `$env:CUDA_ARCH_LIST to override, e.g. for a different target machine)"
+    }
+}
+
+$BuildArgs = @()
+if ($ArchList) { $BuildArgs += @("--build-arg", "CUDA_ARCH_LIST=$ArchList") }
+
+docker build -t $Image @BuildArgs @args .
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
