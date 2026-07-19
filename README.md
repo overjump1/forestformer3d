@@ -35,6 +35,9 @@ RTX 30xx natively, and newer GPUs (e.g. RTX 40xx) via PTX JIT. To target a
 single architecture (faster build, smaller image):
 `scripts/build.sh --build-arg CUDA_ARCH_LIST="8.0"`.
 
+On Windows, use the `scripts/*.ps1` equivalents of every command below — see
+[Windows notes](#windows-notes).
+
 ## Phase 1 — online machine
 
 ```bash
@@ -97,6 +100,31 @@ Notes:
   Details (including `.las`/`.laz` input and dense-plot two-pass inference via
   `tools/inference_bluepoint.sh`) are in [`UPSTREAM_README.md`](UPSTREAM_README.md).
 - Outputs land in `./work_dirs/` on the host.
+
+## Windows notes
+
+The container itself is Linux either way — on Windows it runs under **Docker
+Desktop with the WSL2 backend**. GPU access needs a current NVIDIA Windows
+driver (WSL2 CUDA support is included; do **not** install a driver inside
+WSL) and "Use the WSL 2 based engine" enabled in Docker Desktop settings.
+
+Two ways to run:
+
+- **PowerShell:** use the `.ps1` equivalents of each script —
+  `.\scripts\build.ps1`, `.\scripts\download_data.ps1` (needs a local
+  Python 3 on PATH), `.\scripts\run_offline.ps1 [command...]`. Same env
+  overrides (`$env:IMAGE`, `$env:SHM_SIZE`, ...).
+- **WSL2 shell (Ubuntu):** clone the repo inside WSL and use the `.sh`
+  scripts exactly as documented above. Prefer keeping the repo (and the
+  dataset) on the WSL filesystem, not under `/mnt/c/...` — bind mounts from
+  the Windows drive are much slower for training I/O.
+
+`docker compose run --rm forestformer3d ...` works identically on Windows.
+
+Line endings: `.gitattributes` pins LF for everything that ends up inside the
+image, so a normal Windows clone is safe. If you cloned before that file
+existed, run `git add --renormalize . && git checkout -- .` or re-clone —
+CRLF in `scripts/docker-entrypoint.sh` would break the container start.
 
 ## What's in the image
 

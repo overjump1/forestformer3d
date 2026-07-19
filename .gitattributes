@@ -1,0 +1,11 @@
+# Files that end up inside the Linux container (or are executed by bash)
+# must keep LF endings even when the repo is cloned on Windows.
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+docker-compose.yml text eol=lf
+*.txt text eol=lf
+
+# PowerShell scripts are fine either way; keep them native
+*.ps1 text
