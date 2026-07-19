@@ -14,7 +14,9 @@
 #   CHECKPOINT_MATCH regex used to pick the model asset from the Zenodo record
 FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel
 
-ARG CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"
+# 8.6 = RTX A5000 / RTX 30xx (Ampere). For other/multiple GPUs pass e.g.
+# --build-arg CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"
+ARG CUDA_ARCH_LIST="8.6"
 ARG MAX_JOBS=4
 ARG DEBIAN_FRONTEND=noninteractive
 

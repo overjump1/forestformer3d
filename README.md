@@ -29,14 +29,12 @@ pretrained checkpoint from Zenodo.
   (reduce `chunk`/cylinder radius in the config if you hit OOM — see the
   upstream readme).
 
-**GPU architectures:** if `nvidia-smi` is available on the build machine, the
-build scripts detect the local GPU and compile the CUDA extensions **only for
-that architecture** (e.g. `8.6+PTX` on an RTX A5000/30xx) — significantly
-faster and smaller. If no GPU is detected, the image falls back to the broad
-`Dockerfile` default `7.0;7.5;8.0;8.6+PTX` (V100 through RTX 30xx natively,
-newer GPUs via PTX JIT). Building for a *different* machine than the one you
-build on? Set it explicitly, e.g. `CUDA_ARCH_LIST="8.0" scripts/build.sh`
-(PowerShell: `$env:CUDA_ARCH_LIST="8.0"; .\scripts\build.ps1`).
+**GPU architecture:** the image compiles its CUDA extensions for compute
+capability **8.6 only** (RTX A5000 / RTX 30xx, Ampere) — the smallest and
+fastest build for that hardware. For a different or additional GPU, pass the
+matching architecture(s), e.g.
+`scripts/build.sh --build-arg CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"`
+(A100 is `8.0`, V100 is `7.0`, RTX 20xx is `7.5`).
 
 ### Disk space
 
@@ -49,7 +47,7 @@ build dies with "no space left on device":
   containers) and `docker builder prune` (removes build cache).
 - Docker Desktop → Settings → Resources → Advanced: raise the **virtual disk
   limit**, and/or change the **disk image location** to a drive with more room.
-- Build leaner: the single-architecture auto-detection above is the biggest
+- Build leaner: the single-architecture default (8.6) is already the biggest
   saving; `--build-arg SKIP_CHECKPOINT=1` also skips baking the pretrained
   model (you can still get it via `scripts/download_data.sh`, mounted at
   runtime).
