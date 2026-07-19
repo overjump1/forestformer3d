@@ -1,0 +1,19 @@
+# Keep the build context small: exclude repo metadata and all heavy runtime
+# payloads (dataset, downloads, checkpoints) — those are mounted or fetched
+# during the build, never sent as context.
+.git
+.gitignore
+zenodo_downloads/
+work_dirs/
+data/ForAINetV2/train_val_data/
+data/ForAINetV2/test_data/
+data/ForAINetV2/forainetv2_instance_data/
+data/ForAINetV2/points/
+data/ForAINetV2/instance_mask/
+data/ForAINetV2/semantic_mask/
+*.pth
+*.tar
+*.tar.gz
+segmentator/csrc/build/
+**/__pycache__/
+Dockerfile.upstream
