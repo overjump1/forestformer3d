@@ -1,0 +1,17 @@
+# Heavy runtime payloads — never committed
+zenodo_downloads/
+work_dirs/
+data/ForAINetV2/train_val_data/
+data/ForAINetV2/test_data/
+data/ForAINetV2/forainetv2_instance_data/
+data/ForAINetV2/points/
+data/ForAINetV2/instance_mask/
+data/ForAINetV2/semantic_mask/
+*.pth
+*.tar
+*.tar.gz
+
+# Build artifacts
+segmentator/csrc/build/
+__pycache__/
+*.pyc
