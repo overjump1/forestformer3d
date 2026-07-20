@@ -1,171 +1,108 @@
-# ForestFormer3D — Docker image for offline use
+# Individual-tree isolation pipeline (treeiso)
 
-Everything needed to **build a Docker image** of
-[SmartForest-no/ForestFormer3D](https://github.com/SmartForest-no/ForestFormer3D)
-(ICCV 2025 — end-to-end segmentation of forest LiDAR 3D point clouds) and then
-**run it fully offline** — inference, training, and data preprocessing all work
-with `--network none`.
+Given a single LAS/LAZ whose **ground is already classified** (ASPRS class 2)
+and whose vegetation is already split into low / medium / high vegetation by
+height (classes 3 / 4 / 5), this pipeline runs the pre-processing recommended by
+[artemis_treeiso](https://github.com/truebelief/artemis_treeiso), isolates the
+individual trees, and writes an output cloud where **every isolated-tree point
+gets its own `Tree` class plus a per-tree `treeID`**.
 
-The upstream source code is vendored in this repository at commit
-[`6a75c37`](https://github.com/SmartForest-no/ForestFormer3D/commit/6a75c3735e4a4108d02ee944a8b93177f2360a4f)
-(see [Attribution & license](#attribution--license)). The upstream docs are
-kept as [`UPSTREAM_README.md`](UPSTREAM_README.md) and the original Dockerfile
-as `Dockerfile.upstream`.
+The [pure-Python treeiso](https://github.com/truebelief/artemis_treeiso)
+implementation (`treeiso.py`, `cut_pursuit_L0.py`,
+`cut_pursuit_L0_replica_cpp.py`) is vendored here unchanged except for one bug
+fix (see [Notes](#notes)).
 
-Compared to the upstream image, this one is **offline-complete**: all the
-manual post-install steps from the upstream readme are baked into the build —
-`laspy[lazrs]`, the CUDA-enabled `torch-points-kernels`/`torch-cluster`
-builds, the patched `mmengine`/`mmdet3d` files from
-`replace_mmdetection_files/`, the compiled `segmentator` extension, and the
-pretrained checkpoint from Zenodo.
+## What it does
 
-## Requirements
+Running `run_pipeline.py input.las` performs, in order:
 
-- **Online machine (build phase):** Docker, internet access, ~40 GB free disk.
-  No GPU needed to build.
-- **Offline machine (run phase):** NVIDIA GPU + driver, Docker with
-  [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-  Upstream recommends an A100 for training; inference works on smaller GPUs
-  (reduce `chunk`/cylinder radius in the config if you hit OOM — see the
-  upstream readme).
+1. **Ground removal** — drops points classified as ground (class 2). treeiso
+   requires an above-ground cloud.
+2. **Noise removal** — statistical outlier removal (SOR, NN=10, std=1), matching
+   the README's CloudCompare recommendation.
+3. **Decimation** — voxel down-sampling to ~2 cm.
+4. **Tree isolation** — treeiso's three-stage cut-pursuit segmentation.
+5. **Reclassification** — the per-tree labels are carried back onto the
+   full-resolution vegetation and encoded as:
+   - `classification` = a single **`Tree`** code (default **40**) for every
+     isolated-tree point, and
+   - a new **`treeID`** extra dimension (`uint32`, 1-based; `0` = not a tree).
 
-**GPU architecture:** the image compiles its CUDA extensions for compute
-capability **8.6 only** (RTX A5000 / RTX 30xx, Ampere) — the smallest and
-fastest build for that hardware. For a different or additional GPU, pass the
-matching architecture(s), e.g.
-`scripts/build.sh --build-arg CUDA_ARCH_LIST="7.0;7.5;8.0;8.6+PTX"`
-(A100 is `8.0`, V100 is `7.0`, RTX 20xx is `7.5`).
+Ground points and any vegetation not absorbed into a tree keep their original
+classification (`treeID = 0`), so the existing low/mid/high-veg classes are
+preserved for everything that is not an isolated tree.
 
-### Disk space
-
-The build happens inside Docker's own storage (on Windows: the Docker Desktop
-WSL2 virtual disk) and needs roughly **35–40 GB free** there — the CUDA devel
-base image alone is ~13 GB, plus the built layers and build cache. If the
-build dies with "no space left on device":
-
-- Reclaim space: `docker system prune -a` (removes **all** unused images and
-  containers) and `docker builder prune` (removes build cache).
-- Docker Desktop → Settings → Resources → Advanced: raise the **virtual disk
-  limit**, and/or change the **disk image location** to a drive with more room.
-- Build leaner: the single-architecture default (8.6) is already the biggest
-  saving; `--build-arg SKIP_CHECKPOINT=1` also skips baking the pretrained
-  model (you can still get it via `scripts/download_data.sh`, mounted at
-  runtime).
-
-On Windows, use the `scripts/*.ps1` equivalents of every command below — see
-[Windows notes](#windows-notes).
-
-## Phase 1 — online machine
+## Install
 
 ```bash
-# 1. Build the image (compiles extensions, bakes in the pretrained model)
-scripts/build.sh
-
-# 2. Download the ForAINetV2 dataset from Zenodo record 16742708
-#    -> data/ForAINetV2/{train_val_data,test_data}, work_dirs/.../epoch_3000_fix.pth
-scripts/download_data.sh
+pip install -r requirements.txt
 ```
 
-Moving to an air-gapped machine:
+Requires Python 3.x with `numpy < 2.0` (see `requirements.txt`).
+
+## Usage
 
 ```bash
-docker save forestformer3d:offline | gzip > forestformer3d-offline.tar.gz
-# copy forestformer3d-offline.tar.gz + the data/ and work_dirs/ folders over, then:
-docker load < forestformer3d-offline.tar.gz
+python run_pipeline.py input.las
+# -> input_classified.laz
 ```
 
-Build knobs (all optional): `--build-arg SKIP_CHECKPOINT=1` builds without the
-pretrained model; `--build-arg CHECKPOINT_URL=<url>` pins the exact model file
-(direct `.pth` or `.zip` URL) if the Zenodo auto-discovery picks the wrong
-asset — inspect the record with
-`python3 scripts/zenodo_fetch.py --record 16742708 --list`;
-`--build-arg MAX_JOBS=8` speeds up compilation on big machines.
+Options:
 
-## Phase 2 — offline machine
+| flag | default | meaning |
+|------|---------|---------|
+| `-o, --output` | `<input>_classified.laz` | output path |
+| `--voxel` | `0.02` | decimation voxel size (m) |
+| `--sor-k` | `10` | SOR neighbour count (NN) |
+| `--sor-std` | `1.0` | SOR standard-deviation multiplier |
+| `--tree-class` | `40` | classification code for tree points |
+| `--carryback-radius` | `0.1` | max distance (m) to propagate tree labels back to full-res points |
+| `--keep-intermediate` | off | also write `<input>_preprocessed.laz` |
 
-`scripts/run_offline.sh` runs the container with `--gpus all` and
-`--network none` (no network available, by construction), mounting
-`./data/ForAINetV2` and `./work_dirs` from the host. With no arguments it
-opens a shell; otherwise it runs the given command.
+### Output schema
+
+| field | meaning |
+|-------|---------|
+| `classification` | unchanged except isolated-tree points set to `--tree-class` (40) |
+| `treeID` | per-tree instance id, `1..N`; `0` for non-tree points |
+
+## Running treeiso on its own
+
+The vendored tool still works standalone on an already-preprocessed,
+ground-removed folder of LAS/LAZ files:
 
 ```bash
-# a) Preprocess the point clouds (once, after placing/downloading the data)
-scripts/run_offline.sh bash -c \
-  "cd data/ForAINetV2 && python batch_load_ForAINetV2_data.py && cd /workspace && python tools/create_data_forainetv2.py forainetv2"
-
-# b) Inference with the baked-in pretrained model
-scripts/run_offline.sh python tools/test.py \
-  configs/oneformer3d_qs_radius16_qp300_2many.py \
-  work_dirs/clean_forestformer/epoch_3000_fix.pth
-
-# c) Training
-scripts/run_offline.sh python tools/train.py \
-  configs/oneformer3d_qs_radius16_qp300_2many.py --work-dir work_dirs/my_run
+python treeiso.py     # prompts for a directory; writes *_treeiso.laz
 ```
 
-`docker compose run --rm forestformer3d ...` is an equivalent alternative
-(see `docker-compose.yml`). For training, raise the shared memory:
-`SHM_SIZE=128g scripts/run_offline.sh ...`.
+## Testing
 
-Notes:
-- The container entrypoint restores the baked-in checkpoint and the data-prep
-  scripts/meta_data into the mounted volumes if they're missing, so an empty
-  `work_dirs/` mount still has the pretrained model available.
-- To test your own point clouds: put `.ply` files in
-  `data/ForAINetV2/test_data/`, add their base names to
-  `data/ForAINetV2/meta_data/test_list.txt`, re-run step (a), then step (b).
-  Details (including `.las`/`.laz` input and dense-plot two-pass inference via
-  `tools/inference_bluepoint.sh`) are in [`UPSTREAM_README.md`](UPSTREAM_README.md).
-- Outputs land in `./work_dirs/` on the host.
+`make_synthetic_las.py` generates a small synthetic cloud (flat ground + three
+conical trees split into veg classes + noise) for an end-to-end smoke test:
 
-## Windows notes
+```bash
+python make_synthetic_las.py synth.las
+python run_pipeline.py synth.las
+```
 
-The container itself is Linux either way — on Windows it runs under **Docker
-Desktop with the WSL2 backend**. GPU access needs a current NVIDIA Windows
-driver (WSL2 CUDA support is included; do **not** install a driver inside
-WSL) and "Use the WSL 2 based engine" enabled in Docker Desktop settings.
+## Notes
 
-Two ways to run:
-
-- **PowerShell:** use the `.ps1` equivalents of each script —
-  `.\scripts\build.ps1`, `.\scripts\download_data.ps1` (needs a local
-  Python 3 on PATH), `.\scripts\run_offline.ps1 [command...]`. Same env
-  overrides (`$env:IMAGE`, `$env:SHM_SIZE`, ...).
-- **WSL2 shell (Ubuntu):** clone the repo inside WSL and use the `.sh`
-  scripts exactly as documented above. Prefer keeping the repo (and the
-  dataset) on the WSL filesystem, not under `/mnt/c/...` — bind mounts from
-  the Windows drive are much slower for training I/O.
-
-`docker compose run --rm forestformer3d ...` works identically on Windows.
-
-Line endings: `.gitattributes` pins LF for everything that ends up inside the
-image, so a normal Windows clone is safe. If you cloned before that file
-existed, run `git add --renormalize . && git checkout -- .` or re-clone —
-CRLF in `scripts/docker-entrypoint.sh` would break the container start.
-
-## What's in the image
-
-| Component | Version / source |
-|---|---|
-| Base | `pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel` (Python 3.10) |
-| OpenMMLab | mmengine 0.7.3, mmcv 2.0.0 (cu116), mmdet 3.0.0, mmsegmentation 1.0.0, mmdetection3d @`22aaa47` (+ project patches from `replace_mmdetection_files/`) |
-| Sparse/point ops | spconv-cu116 2.3.6, MinkowskiEngine @`02fc608`, torch-scatter 2.0.9, torch-points-kernels 0.7.0, torch-cluster 1.6.1 (all compiled with CUDA) |
-| Superpoints | `segmentator/` (bundled, built via CMake; CMakeLists vendored from Karbo123/segmentator @`76efe46`) |
-| Model | `epoch_3000_fix.pth` from [Zenodo 16742708](https://zenodo.org/records/16742708), baked at `/opt/forestformer3d/checkpoints/` and restored to `work_dirs/clean_forestformer/` on start |
+- treeiso assigns **every** above-ground point it is given to some tree segment;
+  after ground and noise removal, the remaining vegetation is therefore all
+  grouped into trees.
+- **Bug fix vs upstream:** the upstream `treeiso.main` mapped the intermediate
+  (2D) segmentation labels back with the wrong decimation index (RES1 instead of
+  RES2), which raised an `IndexError`. The per-file logic is refactored into
+  `treeiso.isolate_trees()` with the corrected mapping; both `run_pipeline.py`
+  and standalone `treeiso.py` use it.
 
 ## Attribution & license
 
-This repository vendors the official ForestFormer3D implementation by the
-SmartForest project (Binbin Xiang et al., NIBIO), which builds on
-[OneFormer3D](https://github.com/filaPro/oneformer3d) and is licensed under
-**CC BY-NC 4.0** (see [LICENSE](LICENSE)); this repository is under the same
-license. If you use this work, please cite:
+Built on **artemis_treeiso** by Zhouxin Xi and Chris Hopkinson, University of
+Lethbridge — Artemis Lab. Please cite:
 
-```bibtex
-@inproceedings{xiang2025forestformer3d,
-  title     = {ForestFormer3D: A Unified Framework for End-to-End Segmentation of Forest LiDAR 3D Point Clouds},
-  author    = {Binbin Xiang and Maciej Wielgosz and Stefano Puliti and Kamil Král and Martin Krůček and Azim Missarov and Rasmus Astrup},
-  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
-  year      = {2025}
-}
-```
+> Xi, Z.; Hopkinson, C. 3D Graph-Based Individual-Tree Isolation (treeiso) from
+> terrestrial laser scanning point clouds.
+
+The isolation relies on the cut-pursuit algorithm of Landrieu and Obozinski. See
+[`LICENSE`](LICENSE) for the vendored treeiso / cut-pursuit license terms.

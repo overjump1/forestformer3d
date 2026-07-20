@@ -1,0 +1,9 @@
+# Individual-tree isolation pipeline (artemis_treeiso, pure-Python) + preprocessing
+#
+# treeiso's own dependencies (from truebelief/artemis_treeiso, Python/):
+laspy[lazrs]        # LAS/LAZ I/O; lazrs backend is required to read/write .laz
+numpy<2.0           # numpy-indexed and treeiso require the 1.x ABI
+numpy-indexed       # fast group-by used by treeiso
+scipy               # cKDTree / ConvexHull
+scikit-image        # polygon rasterisation for hull overlap
+PyMaxflow           # graph-cut solver behind the pure-Python cut-pursuit
